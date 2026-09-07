@@ -2,11 +2,9 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
-\usepackage{array}
 \usepackage{enumitem}
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
-\usepackage{xcolor}
 
 \setlist{nosep,leftmargin=*}
 \newcommand{\bq}{\mathbf{q}}
@@ -15,172 +13,84 @@
 \title{\textbf{Conditional Generation under Weak Conditioning:\\[2pt]
 EEG-Conditioned Hand Motion Generation as a Testbed}\\[6pt]
 \large Independent Study Proposal --- Deep Learning}
-\author{Zhizhe Zhang (zz5070)\\
+\author{Zhizhe Zhang (zz5070) \quad Dixuan Yang (dy2397)\\
 NYU Shanghai \\[4pt]
 \small Advisor: Prof.\ Shengjie Wang}
 \date{September 2026}
 
 \begin{document}
 \maketitle
+\vspace{-2em}
 
 \begin{abstract}
-Conditional generative models---classifier-free guidance, adaptive normalization, cross-attention conditioning---were developed and tuned on \emph{strong} conditions such as text prompts and class labels. Little is known about how they behave when the conditioning signal is weak: low in mutual information with the target, low in signal-to-noise ratio, and unstable across domains. Scalp EEG is an extreme instance of such a condition. This proposal studies the design of conditional generation under weak conditioning, using EEG-conditioned hand-trajectory generation on the WAY-EEG-GAL dataset as the primary testbed. The contributions are (i) a structured, low-dimensional output parameterization that separates path geometry from execution timing; (ii) a set of \emph{condition-fidelity} diagnostics that measure whether a conditional generator actually uses its condition, which existing EEG generation work does not test; and (iii) a controlled experiment in which condition strength is varied as an independent variable, so that EEG becomes one point on a curve rather than the sole evidence. A two-week validity gate precedes all generative modeling, because the existing EEG trajectory-decoding literature reports correlation scores that may be largely explained by task stereotypy and metric bias.
+\noindent Conditional generative models---classifier-free guidance, adaptive normalization, cross-attention conditioning---were tuned on \emph{strong} conditions such as text prompts and class labels. How they behave when the condition is weak (low mutual information with the target, low SNR, unstable across domains) is largely untested. We study that question with EEG-conditioned hand-trajectory generation on WAY-EEG-GAL as the testbed. The contributions are (i) a structured, low-dimensional output parameterization separating path geometry from execution timing; (ii) \emph{condition-fidelity} diagnostics that measure whether a conditional generator actually uses its condition, which existing EEG generation work does not test; and (iii) a controlled experiment in which condition strength is an independent variable, so that EEG is one point on a curve rather than the sole evidence. A two-week validity gate precedes all generative modeling, because reported EEG trajectory-decoding correlations may be largely explained by task stereotypy and metric bias.
 \end{abstract}
 
 \section{Motivation}
 
-\paragraph{Classification is reliable; regression is unverified.}
-EEG-based motor decoding splits into two regimes. Classification of movement type (left/right hand, grasp category) has been replicated for decades: it requires only a few bits of information, permits temporal averaging over the whole trial, and has a hard chance level. Continuous trajectory regression, by contrast, reports Pearson correlation coefficients (PCC) of 0.4--0.7 whose provenance has rarely been verified. Three mechanisms inflate these numbers:
+EEG motor decoding splits into two regimes. Movement-type classification has been replicated for decades: it needs only a few bits, permits averaging over the trial, and has a hard chance level. Continuous trajectory regression instead reports Pearson correlations (PCC) of 0.4--0.7 whose provenance is rarely verified, for three reasons. \emph{Chance is not zero}: Kobler et al.~\cite{kobler2018} obtained $r\approx0.10$--$0.13$ by shuffling, and their control condition---subjects watching a replayed cursor with the hand at rest---still yielded $r\approx0.33$--$0.36$ for ``hand velocity'' versus $r\approx0.40$ during real execution. \emph{The metric is biased}: PCC is scale-invariant and systematically high for slow, sinusoid-like signals, which both low-pass EEG and hand velocity are; against a randomly re-paired baseline, Antelis et al.~\cite{antelis2013} found reported correlations were not above chance. \emph{The task is stereotyped}: the 3{,}936 WAY-EEG-GAL trials share nearly identical kinematics, so a model that ignores its input and emits the phase-conditioned mean scores well.
 
-\begin{enumerate}
-\item \emph{Chance level is not zero.} Kobler et al.~\cite{kobler2018} estimated empirical chance by shuffling and obtained $r\approx0.10$--$0.13$, against observed decoding correlations of $0.2$--$0.4$. More strikingly, their control condition---subjects watching a replayed cursor with the hand at rest---yielded $r\approx0.33$--$0.36$ for ``hand velocity'', versus $r\approx0.40$ during actual execution. Genuine cortical signal exists (localized to fronto-central and contralateral sensorimotor areas) but accounts for a small fraction of the apparent score. Averaging decoded outputs across subjects raised $r$ from $0.4$ to $0.83$.
-\item \emph{The metric is biased.} Antelis et al.~\cite{antelis2013} showed that PCC is scale-invariant and systematically high for slow, sinusoid-like signals; both low-pass-filtered EEG and hand velocity are such signals. Using randomly re-paired data to estimate chance, they found reported correlations were not above chance.
-\item \emph{The task is stereotyped.} WAY-EEG-GAL is a cued grasp-and-lift task; its 3{,}936 trials share nearly identical kinematics. A model that ignores its input and emits the phase-conditioned mean trajectory scores well on PCC.
-\end{enumerate}
+The conclusion is not that regression fails, but that its true performance is an \emph{unmeasured quantity}. The first and third reasons are one phenomenon: the condition is too weak, so the model fits the marginal distribution of the output. That is a known failure mode of conditional generation which the BCI literature does not name as such; conversely, the conditional-generation toolkit was tuned on strong conditions, and how it degrades as conditions weaken has not been studied systematically. EEG is an extreme but honest instance of the general problem.
 
-The correct conclusion is not that regression is known to fail, but that its true performance is an \emph{unmeasured quantity}.
+\section{Weak Conditioning}
 
-\paragraph{This is a weak-conditioning problem.}
-Mechanisms (1) and (3) describe the same phenomenon: the condition is too weak, so the model fits the marginal distribution of the output. This is a known failure mode of conditional generation, though the BCI literature does not describe it in those terms. Conversely, the conditional-generation toolkit was tuned on strong conditions; how it degrades as conditions weaken has not been studied systematically.
-
-\section{Weak Conditioning: Three Dimensions}
-
-``Weak'' conflates three properties with different remedies (Table~\ref{tab:weak}). Distinguishing them turns an excuse into a diagnosis.
+``Weak'' conflates three properties with different remedies (Table~\ref{tab:weak}); separating them turns an excuse into a diagnosis.
 
 \begin{table}[h]
 \centering\small
-\begin{tabular}{@{}p{2.7cm}p{3.3cm}p{4.2cm}p{4.2cm}@{}}
+\begin{tabular}{@{}p{2.5cm}p{3.1cm}p{3.9cm}p{4.2cm}@{}}
 \toprule
 Dimension & Meaning & Algorithmically addressable & Consequence \\
 \midrule
 Low information & Small $I(c;x)$ & No (hard ceiling) & Only remedy is coarser output \\
 Low SNR & Signal buried in artifact & Yes (representation, denoising) & Encoder design \\
-Distribution shift & Cross-subject / session variability & Yes (adaptation, invariance) & Cross-subject generalization \\
+Distribution shift & Cross-subject variability & Yes (adaptation, invariance) & Cross-subject generalization \\
 \bottomrule
 \end{tabular}
 \caption{Three independent dimensions of weak conditioning.}
 \label{tab:weak}
 \end{table}
 
-Under weak conditioning, three concrete failure modes arise and are the objects of study here: \emph{condition collapse} (the model ignores the condition and emits the marginal, i.e.\ the template); \emph{guidance amplifying noise} (CFG scales the conditional--unconditional difference, which for a noisy condition is largely noise, so the text-to-image default $w\approx7.5$ cannot transfer); and a \emph{deformed diversity--fidelity trade-off} (sample diversity may reflect honest uncertainty or a failure to learn the condition, indistinguishable under standard metrics).
+\vspace{-0.5em}
+Three failure modes follow and are the objects of study: \emph{condition collapse} (the model emits the marginal, i.e.\ the template); \emph{guidance amplifying noise} (CFG scales the conditional--unconditional difference, which for a noisy condition is largely noise, so the text-to-image default $w\approx7.5$ cannot transfer); and a \emph{deformed diversity--fidelity trade-off} (sample diversity may reflect honest uncertainty or a failure to learn the condition, indistinguishable under standard metrics).
 
-\section{Related Work and Positioning}
+\section{Related Work}
 
-\paragraph{Discriminative baselines.} PreMovNet~\cite{premovnet}, ESI-GAL~\cite{esigal}, and M3T-Attention~\cite{m3t} regress hand kinematics from low-frequency EEG on WAY-EEG-GAL; all report PCC. The public M3T training script splits by session within a single subject, so its scores do not reflect unseen-subject performance.
+PreMovNet~\cite{premovnet}, ESI-GAL~\cite{esigal} and M3T-Attention~\cite{m3t} regress hand kinematics from low-frequency EEG on WAY-EEG-GAL and all report PCC; the public M3T script splits by session within one subject, so its scores do not reflect unseen-subject performance. Among generative neighbors, JET~\cite{jet} generates EEG via flow matching, NeuroSonic~\cite{neurosonic} reconstructs speech from EEG via conditional flow matching, and FDA~\cite{fda} learns neural-to-behavior maps on invasive recordings. Several of their choices transfer: JET's structure-preserving constraints against mean-seeking, its concave optimum in constraint weight, and its finding that a degenerate zero-noise base distribution is catastrophic; NeuroSonic's $x$-prediction with a velocity-space loss~\cite{jit} and its preference for deterministic ODE sampling under noisy conditioning.
 
-\paragraph{Generative neighbors.} JET~\cite{jet} generates EEG via flow matching for augmentation; NeuroSonic~\cite{neurosonic} reconstructs speech from EEG via conditional flow matching; FDA~\cite{fda} learns neural-to-behavior maps with flow matching on invasive primate recordings. No prior work generates hand motion from EEG, and none treats condition strength as an experimental variable.
-
-\paragraph{What transfers from JET and NeuroSonic.}
-JET names \emph{mean-seeking} as the failure of pure reconstruction losses, adds structure-preserving constraints (L1 reconstruction, moment matching, total variation, correlation) whose ablation shows reconstruction alone is worst, finds a concave optimum in constraint weight, and shows that a degenerate (zero-noise) base distribution is catastrophic regardless of loss weighting. NeuroSonic adopts $x$-prediction with a velocity-space loss~\cite{jit}, injects the condition by concatenating EEG and target tokens into a joint sequence, and argues that deterministic ODE sampling is more stable than stochastic sampling under noisy conditioning. All of these are adopted or tested here.
-
-\paragraph{What they do not do.}
-Neither work tests whether the model uses its condition. NeuroSonic has no shuffle control, no template baseline, no condition dropout, and no guidance analysis; its metrics (FAD, LSD, spectral convergence, DNSMOS) measure distributional similarity or per-sample quality, none of which depends on the specific input. A model that ignores EEG and generates plausible speech would score well. This gap is the central methodological contribution of the present proposal, and the diagnostics below apply directly to NeuroSonic.
-
-\paragraph{Positioning.} NeuroSonic treats weak conditioning as a difficulty to overcome; this proposal treats condition strength as a controlled variable and condition usage as a measured quantity. Hand motion additionally offers a separable path/timing structure with no analogue in speech.
+What neither does is test whether the model uses its condition. NeuroSonic has no shuffle control, no template baseline, no condition dropout and no guidance analysis, and its metrics (FAD, LSD, spectral convergence, DNSMOS) measure distributional similarity or per-sample quality---a model ignoring EEG and generating plausible speech would score well. Closing that gap is our central methodological contribution, and the diagnostics below apply directly to that work. No prior work generates hand motion from EEG, and none treats condition strength as an experimental variable; hand motion additionally offers a separable path/timing structure with no analogue in speech.
 
 \section{Method}
 
-\subsection{Task}
-Input: approximately 1\,s of scalp EEG preceding movement onset (window length selected on validation data), and nothing else. Output: the full three-dimensional wrist displacement sequence of the subsequent reach-to-grasp (1--2\,s), relative to the onset position. No EEG is available within the prediction horizon; the whole trajectory is generated in one pass. This departs from lagged sliding-window decoding and avoids a degeneracy: over 300--500\,ms the displacement is nearly a line segment, and path and timing parameters become collinear.
+\paragraph{Task.} Input: roughly 1\,s of scalp EEG preceding movement onset, and nothing else. Output: the full 3D wrist displacement sequence of the subsequent reach-to-grasp (1--2\,s), relative to the onset position, generated in one pass with no EEG inside the prediction horizon. This avoids a degeneracy of lagged sliding-window decoding: over 300--500\,ms the displacement is nearly a line segment, and path and timing parameters become collinear.
 
-\subsection{Structured output representation}
-Following the space--time decoupling of arc-length dynamic movement primitives~\cite{dmp}, a trajectory is decomposed into
-\begin{equation}
-\Delta\bp(u)=\bq\big(s(u)\big),\qquad u\in[0,H],
-\end{equation}
-where $\bq$ is the spatial path parameterized by cumulative arc length (initially 8 spline control points, 24 dims) and $s(u)$ is a monotone progress map from real time to arc position (non-negative increments, 10 dims). The reconstruction is differentiable and reduces the output from ${\sim}300$ to ${\sim}34$ dimensions. Two effects are intended: lowering the information the model must extract from the condition, and removing the mechanism by which per-timestep regression penalizes temporal misalignment and thereby rewards averaged trajectories. The decomposition itself is not claimed as novel; the claim concerns its role as a generative output parameterization under weak conditioning. Collinearity of the two parameter groups at the chosen horizon must be tested explicitly (Gate~2).
+\paragraph{Structured output.} Following the space--time decoupling of arc-length dynamic movement primitives~\cite{dmp}, a trajectory is written as $\Delta\bp(u)=\bq(s(u))$, where $\bq$ is the spatial path parameterized by cumulative arc length (8 spline control points, 24 dims) and $s(\cdot)$ a monotone progress map from time to arc position (10 dims). Reconstruction is differentiable and reduces the output from ${\sim}300$ to ${\sim}34$ dimensions. Two effects are intended: lowering the information the model must extract from the condition, and removing the mechanism by which per-timestep regression penalizes temporal misalignment and thereby rewards averaged trajectories. The decomposition is not novel; the claim concerns its role as a generative output parameterization under weak conditioning, and its collinearity at the chosen horizon is tested explicitly (Gate~2).
 
-\subsection{Generator}
-A conditional flow-matching model jointly generates path and timing parameters (jointly, since the two are dependent). Parameterization follows the $x$-prediction / velocity-loss formulation of JiT and NeuroSonic. The backbone is a small Transformer with AdaLN injection of the flow time $t$ and RMS-normalized queries and keys; the base distribution is standard Gaussian (no template initialization, per JET); condition dropout at $p=0.1$ enables CFG analysis and an unconditional baseline. Three condition-injection variants are compared: AdaLN, cross-attention, and joint-token concatenation.
+\paragraph{Generator.} A conditional flow-matching model~\cite{fm} generates path and timing parameters jointly, under the $x$-prediction / velocity-loss formulation of JiT and NeuroSonic. The backbone is a small Transformer with AdaLN injection of the flow time; the base distribution is standard Gaussian (no template initialization, per JET); condition dropout at $p=0.1$ enables CFG analysis and an unconditional baseline. Three injection variants are compared: AdaLN, cross-attention, and joint-token concatenation. Following JET, the loss adds L1 displacement and velocity reconstruction, a weak bell-shaped velocity-profile prior, a soft jerk bound and endpoint error; each term is ablated and the smoothness weight swept, since stronger smoothness yields prettier trajectories precisely by manufacturing conditional means.
 
-\subsection{Motion-domain constraints}
-Analogous to JET's constraints, the flow-matching loss is augmented with L1 displacement and velocity reconstruction, a weak bell-shaped velocity-profile prior, a soft jerk bound, and endpoint error. Each term is ablated individually, and smoothness weights are swept to locate the concave optimum: a stronger smoothness penalty yields prettier trajectories precisely by manufacturing conditional means.
-
-\subsection{Condition-fidelity diagnostics}
-Three model-agnostic measures of whether a generator uses its condition:
-\begin{enumerate}
-\item \emph{Cross-conditioning matrix.} For test conditions $c_i$ and ground-truth trajectories $x_j$, form $D_{ij}=\mathrm{err}(G(c_i),x_j)$. Condition usage implies diagonal dominance; report the dominance ratio with a permutation $p$-value.
-\item \emph{Within- vs.\ between-condition variance ratio.} Dispersion of $K$ samples from one condition versus dispersion of single samples across conditions; equality indicates collapse.
-\item \emph{Silhouette score} of generated samples clustered by condition, as used in JET.
-\end{enumerate}
-These apply to any conditional generator, including NeuroSonic and the discriminative baselines. A component-wise ablation (EEG fed to the path branch only, the timing branch only, or neither) doubles as a collapse diagnostic and as a substantive finding about which motor component EEG conditions. A DTW-based error decomposition (post-alignment spatial error vs.\ warping deviation) separates path error from timing error for any model's output.
+\paragraph{Condition-fidelity diagnostics.} Three model-agnostic measures of whether a generator uses its condition: (i) a \emph{cross-conditioning matrix} $D_{ij}=\mathrm{err}(G(c_i),x_j)$, where condition usage implies diagonal dominance, reported with a permutation $p$-value; (ii) the \emph{within- vs.\ between-condition variance ratio}, where equality indicates collapse; and (iii) the \emph{silhouette score} of samples clustered by condition, as in JET. These apply to any conditional generator, including the discriminative baselines. A component-wise ablation (EEG fed to the path branch only, the timing branch only, or neither) doubles as a collapse diagnostic and as a finding about which motor component EEG conditions; a DTW-based decomposition separates spatial from timing error for any model's output.
 
 \section{Experimental Design}
 
-\paragraph{Gate 1 (weeks 1--2): does EEG carry usable information?}
-Four models under identical splits and metrics: a phase-conditioned template that ignores its input; a shuffled-pairing model retrained 50--100 times to obtain an empirical chance distribution; an EMG-conditioned model as a positive control (if EMG cannot beat the template, the pipeline is broken); and a lightweight EEG regressor. Consistency check: the shuffled model should match the template; if it exceeds it, leakage is present. Additional check: removing frontal channels---a drop to chance indicates ocular contamination. \emph{Pass criterion, fixed in advance:} the EEG model's mean displacement error on held-out subjects falls below the 5th percentile of the shuffle distribution.
+\paragraph{Gate 1 (weeks 1--2): does EEG carry usable information?} Four models under identical splits: a phase-conditioned template that ignores its input; a shuffled-pairing model retrained 50--100 times for an empirical chance distribution; an EMG-conditioned positive control (if EMG cannot beat the template, the pipeline is broken); and a lightweight EEG regressor. The shuffled model should match the template---exceeding it indicates leakage---and dropping frontal channels should not collapse performance to chance, which would indicate ocular contamination. \emph{Pass criterion, fixed in advance:} the EEG model's mean displacement error on held-out subjects falls below the 5th percentile of the shuffle distribution.
 
-\paragraph{Gate 2 (weeks 3--4).} Reconstruction error of the path/timing representation and an explicit collinearity test; reproduction of M3T.
+\paragraph{Gate 2 (weeks 3--4).} Reconstruction error of the path/timing representation, an explicit collinearity test, and reproduction of M3T.
 
-\paragraph{Core $2\times2$ (weeks 5--7).} Encoder and training budget held fixed:
-\begin{center}\small
-\begin{tabular}{@{}lcc@{}}
-\toprule
- & Raw coordinate sequence & Path/timing representation \\
-\midrule
-Deterministic regression & strong regression baseline & effect of representation alone \\
-Conditional flow matching & plain generative baseline & proposed method \\
-\bottomrule
-\end{tabular}
-\end{center}
-This separates the contribution of the representation from that of generative training.
+\paragraph{Core $2\times2$ (weeks 5--7).} With encoder and training budget fixed, deterministic regression and conditional flow matching are each run on the raw coordinate sequence and on the path/timing representation, separating the contribution of the representation from that of generative training. Weeks 8--10 add the fidelity diagnostics on all models, the component-wise and injection ablations, a CFG sweep $w\in\{0,0.5,1,1.5,2,3,5\}$, ODE vs.\ SDE sampling, and the constraint ablation.
 
-\paragraph{Condition-usage and algorithmic ablations (weeks 8--10).} Fidelity diagnostics applied to all models; component-wise ablation; injection variants; CFG scale sweep $w\in\{0,0.5,1,1.5,2,3,5\}$; ODE vs.\ SDE sampling; constraint ablation and smoothness sweep.
+\paragraph{Condition strength as an independent variable (weeks 8--11, parallel).} Starting from a strongly conditioned motion-generation setting (clean intent labels or demonstration data), the condition is degraded along the three dimensions of Table~\ref{tab:weak}: additive noise, an information bottleneck, and per-``subject'' distribution shift. Repeating the core experiments at each level plots the gain from structured output, the optimal CFG scale, the collapse threshold and the ODE--SDE gap as functions of condition strength, with EEG as the extreme point. This experiment is not data-limited and is the primary answer to ``why EEG?''.
 
-\paragraph{Condition strength as an independent variable (weeks 8--11, in parallel).}
-Starting from a strongly conditioned motion-generation setting (clean intent labels or demonstration data), the condition is degraded along the three dimensions of Table~\ref{tab:weak}: additive noise, an information bottleneck, and per-``subject'' distribution shift. The core experiments are repeated at each level to plot, as functions of condition strength: the gain from structured output, the optimal CFG scale, the collapse threshold, and the ODE--SDE gap. EEG is the extreme point on these curves. This experiment is unconstrained by data volume and is the primary answer to ``why EEG?''.
+\paragraph{Evaluation (weeks 11--12).} Leave-one-subject-out, reporting per-subject distributions rather than a grand average, stratified by trial variability to test JET's prediction that structural gains concentrate on high-variability trials. Primary metrics are mean 3D displacement error (mm), endpoint error, velocity error and velocity-peak timing; per-axis PCC and $R^2$ are reported only for comparison with the literature; generative quality uses a motion-domain distributional distance over kinematic features (not image FID) and the single-sample error distribution, with no best-of-$K$ selection. Splits are made by subject, then session, then trial, before any windowing; normalization statistics come from training data only; filtering is causal except when reproducing prior protocols, where it is labeled as such.
 
-\paragraph{Cross-subject evaluation (weeks 11--12).} Leave-one-subject-out; per-subject distributions reported, never a single grand average. Stratification by trial variability tests JET's transferable prediction that structural gains concentrate on high-variability trials.
+\section{Data, Feasibility, and Risks}
 
-\section{Evaluation Protocol}
-
-\begin{table}[h]
-\centering\small
-\begin{tabular}{@{}lp{9.5cm}@{}}
-\toprule
-Primary & Mean 3D displacement error (mm), endpoint error, velocity error \\
-Literature comparison & Per-axis PCC, $R^2$ (secondary) \\
-Condition fidelity & Cross-conditioning diagonal dominance, variance ratio, silhouette \\
-Timing & Velocity-peak magnitude and timing error \\
-Generative quality & Motion-domain distributional distance over kinematic features (not image FID); single-sample error distribution; no best-of-$K$ selection \\
-Efficiency & Sampling steps; end-to-end latency including EEG front-end \\
-\bottomrule
-\end{tabular}
-\caption{Metrics.}
-\end{table}
-
-Splits are made by subject, then session, then trial, before any windowing; normalization statistics come from training data only; causal filtering and feature extraction are used for the prediction setting (zero-phase filtering used only when reproducing prior protocols and labeled as such; any Hilbert or bidirectional filter is audited for future-sample use). Point-prediction aggregation rules (e.g.\ sample mean) are fixed in advance and never depend on ground truth.
-
-\section{Data and Feasibility}
-
-WAY-EEG-GAL~\cite{wayeeggal}: 12 participants, 3{,}936 grasp-and-lift trials, 32-channel EEG at 500\,Hz with synchronized hand position, EMG, and force. Holding out 3--4 subjects leaves roughly 2{,}600--2{,}900 training pairs. This is small for generative modeling (JET: 130M parameters on 10{,}000+ clinical sessions; NeuroSonic: 16-layer, 1024-wide model on 49{,}200 pairs from 48 subjects) and is treated as a hard constraint: model size is kept in the low millions of parameters (the 34-dimensional output requires no more), results are reported as per-subject distributions under LOSO, and the collapse diagnostics are mandatory because small data plus weak conditions maximize the incentive to fit the marginal. Windowing increases sample count but not information and must follow the split. The condition-strength experiment is not data-limited. A second EEG dataset would address generalization, not sample size, and is a stretch goal; self-supervised pretraining of the EEG encoder on TUH is deferred to an ablation. Public code exists for M3T, JET, and NeuroSonic.
-
-\section{Risks and Fallbacks}
+WAY-EEG-GAL~\cite{wayeeggal} provides 12 participants and 3{,}936 grasp-and-lift trials, 32-channel EEG at 500\,Hz with synchronized hand position, EMG and force; holding out 3--4 subjects leaves roughly 2{,}600--2{,}900 training pairs. This is small for generative modeling (JET: 130M parameters on 10{,}000+ sessions; NeuroSonic: 49{,}200 pairs from 48 subjects) and is treated as a hard constraint: model size stays in the low millions of parameters, results are per-subject LOSO distributions, and the collapse diagnostics are mandatory, because small data plus weak conditions maximize the incentive to fit the marginal. Windowing increases sample count but not information and must follow the split. Public code exists for M3T, JET and NeuroSonic.
 
 \begin{itemize}
-\item \emph{Gate 1 fails.} Reduce output granularity to direction plus speed profile (an order of magnitude less information; supported by the classification literature), or complete the method on the controlled condition-strength setting with EEG reported as a failed extreme case---a bounded algorithmic result, though no longer an EEG paper.
-\item \emph{Gate 2 shows degeneracy.} Replace the decomposition with direction sequence plus scalar speed profile, which does not degenerate on short segments.
-\item \emph{Core grid does not beat baselines.} The fidelity diagnostics, component-wise ablation, and empirical rules for CFG and injection under weak conditioning remain publishable algorithmic findings.
-\item \emph{Overlap with NeuroSonic.} Condition-usage diagnostics, motion-specific structure, and condition strength as a variable are absent from that work.
+\item \emph{Gate 1 fails.} Reduce output granularity to direction plus speed profile (an order of magnitude less information), or complete the method on the controlled condition-strength setting with EEG as a documented failure case---a bounded algorithmic result, though no longer an EEG paper.
+\item \emph{Gate 2 shows degeneracy.} Replace the decomposition with a direction sequence plus scalar speed profile, which does not degenerate on short segments.
+\item \emph{Core grid does not beat baselines.} The fidelity diagnostics, component-wise ablation and empirical rules for CFG and injection under weak conditioning stand on their own.
 \end{itemize}
-
-\section{Timeline}
-
-\begin{center}\small
-\begin{tabular}{@{}lp{12cm}@{}}
-\toprule
-Weeks & Deliverable \\
-\midrule
-1--2 & Gate 1: pipeline, template baseline, EMG positive control, shuffle distribution, frontal-channel ablation, go/no-go \\
-3--4 & Gate 2: representation reconstruction and collinearity test; M3T reproduction \\
-5--7 & Plain conditional flow-matching baseline; core $2\times2$ \\
-8--10 & Condition-usage diagnostics on all models; component-wise, injection, CFG, ODE/SDE, and constraint ablations \\
-8--11 & Condition-strength experiment (parallel) \\
-11--12 & LOSO evaluation; variability-stratified analysis; error decomposition applied to all baselines \\
-13--14 & Statistics, write-up, trajectory demonstrations \\
-\bottomrule
-\end{tabular}
-\end{center}
 
 \section{Questions for the Advisor}
 
@@ -191,17 +101,17 @@ Weeks & Deliverable \\
 \end{enumerate}
 
 \begin{thebibliography}{9}\small
-\bibitem{antelis2013} J.~M. Antelis, L.~Montesano, A.~Ramos-Murguialday, N.~Birbaumer, J.~Minguez. On the usage of linear regression models to reconstruct limb kinematics from low frequency EEG signals. \emph{PLoS ONE}, 8(4):e61976, 2013.
-\bibitem{kobler2018} R.~J. Kobler, A.~I. Sburlea, G.~R. M\"uller-Putz. Tuning characteristics of low-frequency EEG to positions and velocities in visuomotor and oculomotor tracking tasks. \emph{Scientific Reports}, 8:17713, 2018.
-\bibitem{wayeeggal} M.~D. Luciw, E.~Jarocka, B.~B. Edin. Multi-channel EEG recordings during 3,936 grasp and lift trials with varying weight and friction. \emph{Scientific Data}, 1:140047, 2014.
-\bibitem{premovnet} A.~Jain, L.~Kumar. PreMovNet: Pre-movement EEG-based hand kinematics estimation for grasp-and-lift task. \emph{IEEE Sensors Letters}, 2022. arXiv:2205.01050.
+\bibitem{antelis2013} J.~M. Antelis et al. On the usage of linear regression models to reconstruct limb kinematics from low frequency EEG signals. \emph{PLoS ONE}, 8(4):e61976, 2013.
+\bibitem{kobler2018} R.~J. Kobler, A.~I. Sburlea, G.~R. M\"uller-Putz. Tuning characteristics of low-frequency EEG to positions and velocities in visuomotor and oculomotor tracking tasks. \emph{Sci.\ Rep.}, 8:17713, 2018.
+\bibitem{wayeeggal} M.~D. Luciw, E.~Jarocka, B.~B. Edin. Multi-channel EEG recordings during 3,936 grasp and lift trials. \emph{Sci.\ Data}, 1:140047, 2014.
+\bibitem{premovnet} A.~Jain, L.~Kumar. PreMovNet: Pre-movement EEG-based hand kinematics estimation for grasp-and-lift task. \emph{IEEE Sensors Letters}, 2022.
 \bibitem{esigal} A.~Jain, L.~Kumar. ESI-GAL: EEG source imaging-based kinematics parameter estimation for grasp and lift task. arXiv:2406.11500, 2024.
 \bibitem{m3t} M3T-Attention: multi-level multi-scale temporal attention for EEG-based kinematics decoding. 2026. \url{https://github.com/jjspp/M3T_Attention}.
-\bibitem{jet} Y.~Wang, Y.~Ma, W.~Li, C.~You. Let EEG models learn EEG. \emph{ICML}, 2026. arXiv:2605.21280.
-\bibitem{neurosonic} W.~Gao, Y.~Wang, Y.~Ma, C.~Yang, W.~Li, C.~You. NeuroSonic: Conditional flow matching for EEG-to-speech reconstruction. \emph{MICCAI}, 2026. arXiv:2606.24087.
+\bibitem{jet} Y.~Wang, Y.~Ma, W.~Li, C.~You. Let EEG models learn EEG. \emph{ICML}, 2026.
+\bibitem{neurosonic} W.~Gao et al. NeuroSonic: Conditional flow matching for EEG-to-speech reconstruction. \emph{MICCAI}, 2026.
 \bibitem{fda} P.~Wang et al. Flow matching for few-trial neural adaptation with stable latent dynamics. \emph{ICML}, 2025.
 \bibitem{jit} T.~Li, K.~He. Back to basics: Let denoising generative models denoise. arXiv:2511.13720, 2025.
-\bibitem{fm} Y.~Lipman, R.~T.~Q. Chen, H.~Ben-Hamu, M.~Nickel, M.~Le. Flow matching for generative modeling. \emph{ICLR}, 2023.
+\bibitem{fm} Y.~Lipman et al. Flow matching for generative modeling. \emph{ICLR}, 2023.
 \bibitem{dmp} Arc-length dynamic movement primitives. \emph{Robotics and Autonomous Systems}, 2017.
 \end{thebibliography}
 
