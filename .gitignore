@@ -15,3 +15,13 @@
 
 # macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Data and run outputs (data lives outside the repo, in ../NeuroMotion-data)
+data/
+runs/
+*.npz
