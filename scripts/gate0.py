@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -31,7 +32,19 @@ from neuromotion.io import (  # noqa: E402
     series_paths,
 )
 
-DEFAULT_ROOT = Path.home() / "NeuroMotion-data" / "way-eeg-gal"
+def _default_root() -> Path:
+    """Where the extracted archives live.
+
+    ``NEUROMOTION_DATA`` first, so the same command works on torch
+    (/scratch/$USER/data/way-eeg-gal) and on a local sample.
+    """
+    env = os.environ.get("NEUROMOTION_DATA")
+    if env:
+        return Path(env)
+    scratch = Path(f"/scratch/{os.environ.get('USER', '')}/data/way-eeg-gal")
+    if scratch.exists():
+        return scratch
+    return Path.home() / "NeuroMotion-data" / "way-eeg-gal"
 
 
 # ----------------------------------------------------------------- 0.1
@@ -238,10 +251,12 @@ def trajectory_similarity_vs_gap(root: Path, p: int, series: int = 1) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    ap.add_argument("--root", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--json", type=Path, default=None)
     args = ap.parse_args()
+    if args.root is None:
+        args.root = _default_root()
 
     ps = participants(args.root)
     if not ps:

@@ -64,7 +64,17 @@ the shuffle distribution.
 
 ## Where things live
 
-- Code: this repo, `src/neuromotion/` and `scripts/`.
-- Data: `~/NeuroMotion-data/way-eeg-gal/P1..P12/` on the Mac mini (outside the repo).
-  ~10.3 GB compressed, ~15 GB expanded. Mirror to `/scratch/zz5070/` on torch when we need GPUs.
-- Gate 1 is CPU-light and runs locally. Torch is not needed until the generative models.
+**torch is the primary workspace.** The compute is there, and everything from the baselines
+onward runs there.
+
+- Repo: `/scratch/zz5070/NeuroMotion` on torch. Push path is Mac mini -> mbp -> GitHub -> torch,
+  because only mbp holds the GitHub key.
+- Data: `/scratch/zz5070/data/way-eeg-gal/` (~15 GB expanded). Fetch with
+  `scripts/fetch_data.sh`, which is resumable and defaults to `$NEUROMOTION_DATA`.
+- Environment: conda `py312` (`/scratch/zz5070/miniconda3/envs/py312`), numpy 2.0.2,
+  scipy 1.13.1, torch 2.8+cu128.
+- Jobs: `slurm/` launchers as in PACLock; `h100_tandon` starts fastest.
+
+A two-participant copy sits on the Mac mini under `~/NeuroMotion-data/way-eeg-gal` purely as a
+smoke-test sample, so loader changes can be checked without a round trip. It is not the
+working copy and nothing should be reported from it alone.
