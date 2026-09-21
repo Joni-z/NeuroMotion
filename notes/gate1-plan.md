@@ -16,6 +16,7 @@ until all four have an answer.
 | 0.1 | Is `P*_AllLifts` 328 rows or 294? How many trials actually carry kinematics? | The literature review claims 3,528 usable multimodal trials, not the advertised 3,936. If that is wrong, the training-set size in the proposal is wrong. | Count rows per participant; cross-check against the series files present. |
 | 0.2 | What is the **effective** sampling rate of the FASTRAK kinematics? | Stored at a nominal 500 Hz, but the hardware updates at 120 Hz divided by active sensors (≈30 Hz with four). If the stream is zero-order held, every timing metric we plan to report is bounded by ~33 ms, and the timing branch of the path/timing decomposition is far less informative than assumed. | Fraction of exactly-repeated consecutive samples; run-length distribution; power spectrum of wrist position and its numerical derivative. |
 | 0.3 | What is the distribution of `Dur_Reach`? | The proposal assumes a 1–2 s reach. Untested. Sets the generation horizon and the spline knot count. | Histogram, median, IQR, per-participant spread. |
+| 0.5 | Does the pre-movement EEG window cross the LED cue, and does reaction time predict the kinematics? | If both, a decoder can reach the target through cue latency instead of motor cortex. Added after the fact; see `notes/gate0-findings.md`. | Reaction-time distribution against window length; Spearman of reaction time on trial features. |
 | 0.4 | How much do wrist trajectories drift **within** a series? | Li et al. (2021): if kinematic similarity is a smooth function of recording time and EEG is autocorrelated on the same scale, a trial-identification measure gets diagonal structure from the clock alone. This is the failure mode none of our five planned controls catches. | Regress trajectory features (endpoint, peak speed, duration) on trial index within series; report the slope and the autocorrelation length. |
 
 Deliverable: `notes/gate0-findings.md` with numbers, plus the figures behind 0.2 and 0.4.
@@ -38,6 +39,11 @@ Built before any baseline so every model sees identical data.
    published PCC?
 2. **Timestamp-only** (predicts from trial index). New, from Li et al. If this scores well, any
    identification measure we compute is suspect.
+2b. **Reaction-time-only** (predicts from reaction time alone). New, from measurement 0.5. At a
+   1 s window 90% of trials contain the cue-evoked response, whose latency is the reaction time,
+   and reaction time predicts peak reach speed at rho = -0.51 in P2. If this baseline scores
+   near the EEG regressor, the EEG result may be a cue-latency readout rather than motor
+   decoding.
 3. **Shuffled pairing**, retrained 50–100 times. Gives the empirical null for both metrics.
    Tests H2.
 4. **EMG-conditioned** positive control. If EMG cannot beat the template, the pipeline is broken

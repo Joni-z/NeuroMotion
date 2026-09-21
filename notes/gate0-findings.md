@@ -3,9 +3,10 @@
 Status: **interim, P1–P2 only** (download of the remaining ten participants is running).
 Reproduce with `PYTHONPATH=src python3 scripts/gate0.py --json runs/gate0.json`.
 
-Headline: two of the four questions are settled and one of them contradicts the proposal.
-The FASTRAK worry we flagged in the literature review does not materialise in the data;
-the clock confound we flagged does.
+Headline: the FASTRAK worry we flagged in the literature review does not materialise in the
+data; the clock confound we flagged does; the reach is shorter than either document assumes;
+and a fifth measurement we had not planned turned up a fourth route from EEG to the target that
+bypasses motor cortex entirely, which none of our planned controls would catch.
 
 ---
 
@@ -109,6 +110,59 @@ true inter-trial gap, and compute the primary cross-conditioning matrix on acros
 only. On this evidence we should also report it per participant rather than pooled, since P1
 and P2 differ.
 
+## 0.5 The pre-movement window crosses the cue — a fourth route to the target
+
+Not on the original list; it surfaced while designing the windowing and is the most consequential
+thing here.
+
+The proposal takes **~1 s of EEG ending at movement onset**. Reaction time, pooled over 588
+trials, is:
+
+    median 0.477 s   IQR [0.318, 0.649]   5–95% [0.266, 1.349]   min −0.250 (anticipatory)
+
+So the window reaches back past the LED in most trials:
+
+| window | trials where it stays after the cue |
+|---|---|
+| 0.50 s | 48% |
+| 0.75 s | 16% |
+| **1.00 s** | **10%** |
+| 1.50 s | 4% |
+
+At the proposed 1 s, **90% of windows contain the cue-evoked response**. Because the window is
+aligned to movement onset, the cue sits at position (window length − reaction time), so the
+latency of that response *is* the reaction time.
+
+That only matters if reaction time predicts the kinematics. It does:
+
+| | Dur_Reach | peak reach speed | GF_Max |
+|---|---|---|---|
+| P1 | **−0.215** (p=2e-04) | +0.086 | −0.091 |
+| P2 | **+0.231** (p=6e-05) | **−0.511** (p=6e-21) | **+0.268** (p=3e-06) |
+
+P2's reaction time explains a large share of peak reach speed, and note that the sign of the
+`Dur_Reach` relationship **flips between the two participants** — which is itself a reason to
+expect a cross-subject model to behave oddly.
+
+**So there is a complete path from EEG to the target that never touches motor cortex:** read the
+cue-evoked response, recover its latency, recover the reaction time, exploit the
+reaction-time-to-kinematics relationship. Both links are measured above. This does not show that
+any published model takes that route, only that the route is open and nobody has closed it.
+
+**None of our five planned controls catches it.** The template ignores its input; shuffled
+pairing destroys the association during training and returns chance rather than a warning; the
+EMG control is unaffected; and the frontal-channel ablation is aimed at Fp1/Fp2/F7/F8 while a
+visual evoked response lives over O1/O2/Oz/PO9/PO10. So we need:
+
+* a **reaction-time-only baseline**, predicting the trajectory from reaction time alone — the
+  same logic as the timestamp-only baseline, and the direct test of this route;
+* a **cue-aligned** variant of the EEG window as well as the onset-aligned one, so the two can
+  be compared;
+* or a window short enough to stay inside the reaction time, which at 0.5 s still only holds for
+  48% of trials and at 0.25 s costs most of the pre-movement signal we wanted.
+
+This is now hypothesis (7) in the plan.
+
 ---
 
 ## Incidental notes
@@ -146,3 +200,5 @@ the wrist itself moves over ~14 x 27 x 10 cm within a series.
 3. Set the generation horizon from the `Dur_Reach` distribution, not the assumed 1–2 s.
 4. Keep hypothesis (6); add per-participant reporting of the gap analysis.
 5. Units and `tPeakVelHandReach` are resolved; both are encoded in `neuromotion.io`.
+6. **Add hypothesis (7) and a reaction-time-only baseline**, and decide between onset-aligned
+   and cue-aligned EEG windows on evidence rather than by default.

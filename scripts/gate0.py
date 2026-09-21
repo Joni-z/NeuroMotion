@@ -247,6 +247,48 @@ def trajectory_similarity_vs_gap(root: Path, p: int, series: int = 1) -> dict:
                      "diagonal structure from the clock alone")
 
 
+# ----------------------------------------------------------------- 0.5
+
+def cue_window_overlap(root: Path, ps: list[int], windows=(0.5, 0.75, 1.0, 1.5)) -> dict:
+    """Does a pre-movement EEG window cross the LED cue, and does that matter?
+
+    The proposal takes ~1 s of EEG ending at movement onset. If the reaction time
+    is shorter than the window, that window also contains the cue-evoked
+    response, whose position within the window encodes the reaction time. Should
+    reaction time in turn predict the kinematics, a decoder can reach the target
+    through the cue rather than through motor cortex.
+
+    Both halves of that chain are measured here; neither establishes that any
+    published model takes the route, only that the route is open.
+    """
+    feats = ("Dur_Reach", "tPeakVelHandReach", "GF_Max", "GripAparture_Max")
+    rts, per = [], []
+    for p in ps:
+        table, cols = load_alllifts(root / f"P{p}_AllLifts.mat")
+        rt = (alllifts_column(table, cols, "tHandStart")
+              - alllifts_column(table, cols, "LEDOn"))
+        ok = np.isfinite(rt)
+        rts.append(rt[ok])
+        corr = {}
+        for feat in feats:
+            y = alllifts_column(table, cols, feat)
+            m = ok & np.isfinite(y)
+            if m.sum() > 20:
+                rho, pv = stats.spearmanr(rt[m], y[m])
+                corr[feat] = dict(rho=float(rho), p=float(pv), n=int(m.sum()))
+        per.append(dict(participant=p, median_rt=float(np.median(rt[ok])),
+                        n_anticipatory=int((rt[ok] < 0).sum()), rt_vs_feature=corr))
+    rt = np.concatenate(rts)
+    return dict(
+        pooled_rt=dict(n=int(rt.size), median=float(np.median(rt)),
+                       p5=float(np.percentile(rt, 5)), p25=float(np.percentile(rt, 25)),
+                       p75=float(np.percentile(rt, 75)), p95=float(np.percentile(rt, 95)),
+                       min=float(rt.min()), max=float(rt.max())),
+        frac_window_after_cue={f"{w}s": float((rt >= w).mean()) for w in windows},
+        per_participant=per,
+    )
+
+
 # ----------------------------------------------------------------- report
 
 def main() -> None:
@@ -300,6 +342,21 @@ def main() -> None:
         print(f"  trajectory distance vs time gap (P{sim['participant']} S{sim['series']}, "
               f"{sim['n_trials']} trials): rho={sim['spearman_gap_vs_distance']:+.3f} "
               f"(p={sim['p_value']:.2g})")
+    print()
+
+    res["cue_window"] = cue_window_overlap(args.root, ps)
+    cw = res["cue_window"]
+    print("## 0.5 pre-movement window vs the LED cue")
+    r = cw["pooled_rt"]
+    print(f"  reaction time: median={r['median']:.3f}s  IQR=[{r['p25']:.3f}, {r['p75']:.3f}]  "
+          f"5-95%=[{r['p5']:.3f}, {r['p95']:.3f}]")
+    frac = "  ".join(f"{k}:{v*100:.0f}%" for k, v in cw["frac_window_after_cue"].items())
+    print(f"  fraction of trials where the window stays after the cue -> {frac}")
+    for row in cw["per_participant"]:
+        sig = {k: v for k, v in row["rt_vs_feature"].items() if v["p"] < 0.01}
+        if sig:
+            txt = ", ".join(f"{k} rho={v['rho']:+.3f}" for k, v in sig.items())
+            print(f"  P{row['participant']}: reaction time predicts {txt}")
     print()
 
     if args.json:
