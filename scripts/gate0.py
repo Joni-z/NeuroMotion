@@ -296,6 +296,8 @@ def main() -> None:
     ap.add_argument("--root", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--json", type=Path, default=None)
+    ap.add_argument("--gap-series", type=int, nargs="+", default=[1, 5, 9],
+                    help="series to run the trajectory-gap analysis on")
     args = ap.parse_args()
     if args.root is None:
         args.root = _default_root()
@@ -336,12 +338,24 @@ def main() -> None:
     print("## 0.4 within-series drift (Spearman rho of feature vs recording time)")
     for feat, v in res["drift"]["by_feature"].items():
         print(f"  {feat:<20s} mean rho={v['mean_rho']:+.3f}  mean |rho|={v['mean_abs_rho']:.3f}")
-    sim = trajectory_similarity_vs_gap(args.root, ps[0])
-    res["similarity_vs_gap"] = sim
-    if sim:
-        print(f"  trajectory distance vs time gap (P{sim['participant']} S{sim['series']}, "
-              f"{sim['n_trials']} trials): rho={sim['spearman_gap_vs_distance']:+.3f} "
-              f"(p={sim['p_value']:.2g})")
+    sims = []
+    for p in ps:
+        for sr in args.gap_series:
+            r = trajectory_similarity_vs_gap(args.root, p, sr)
+            if r:
+                sims.append(r)
+    res["similarity_vs_gap"] = sims
+    if sims:
+        rhos = np.array([r["spearman_gap_vs_distance"] for r in sims])
+        sig = [r for r in sims if r["p_value"] < 0.01]
+        print(f"  trajectory distance vs time gap, {len(sims)} participant-series:")
+        print(f"    mean rho={rhos.mean():+.3f}  median={np.median(rhos):+.3f}  "
+              f"range=[{rhos.min():+.3f}, {rhos.max():+.3f}]  "
+              f"{(rhos > 0).sum()}/{len(rhos)} positive, {len(sig)} at p<0.01")
+        worst = sorted(sims, key=lambda r: -r["spearman_gap_vs_distance"])[:4]
+        for r in worst:
+            print(f"    P{r['participant']} S{r['series']}: rho={r['spearman_gap_vs_distance']:+.3f} "
+                  f"(p={r['p_value']:.1e}, same-cond {r['rho_within_same_condition']:+.3f})")
     print()
 
     res["cue_window"] = cue_window_overlap(args.root, ps)
